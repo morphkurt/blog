@@ -1,0 +1,101 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Alexa I Cannot Hear You
+| Damitha Gunawardena @damithag</title><link href="https://fonts.googleapis.com/css?family=Oxygen|Oxygen+Mono:300,400,700" rel=stylesheet><link rel=stylesheet href=/book.min.a3caa905766cf610e263c876d2f2d8477f59d64606267bcaeee26e73160f9285.css><link rel=icon href=/favicon.png type=image/x-icon></head><body><input type=checkbox style=display:none id=menu-control><main class="flex container"><aside class="book-menu fixed"><nav role=navigation><h2 class=book-brand><a href=https://damitha.xyz/>Damitha Gunawardena @damithag</a></h2><ul><li><span>Coding</span><ul><li><a href=/docs/coding/alexa-i-cannot-hear-you/ class=active>Alexa I Cannot Hear You</a></li></ul></li><li><span>Hobby Projects</span><ul><li><a href=/docs/hobby-projects/smart-home/intro/>Intro</a></li></ul></li></ul></nav></aside><div class=book-page><header class="align-center justify-between book-header"><label for=menu-control><img src=/svg/menu.svg alt=Menu></label>
+<strong>Alexa I Cannot Hear You</strong></header><article class=markdown><h1 id=just-in-time-loudness-enhancer>just in time loudness enhancer</h1><p>So you have an old audio streaming workflow which isn&rsquo;t quite loud enough for things like alexa or google home? An you want to increase the loudness without screwing up rest of the workflow?</p><h2 id=why>why?</h2><p>More devices, more ways to stream content. No real standard to keep audio consistent across platforms. <a href=https://www.ebu.ch/home>EBU</a> is trying change that with <a href=https://tech.ebu.ch/docs/r/r128.pdf>R128</a></p><p>Want to learn more about it? I am no expert so will leave it to experts.</p><h2 id=ffmpeg-to-the-rescue-again>ffmpeg to the rescue&hellip;(again)</h2><p>I have an existing hls audio stream from a wowza media server. The encoders feeding the stream was bit old and was not able to introduce the ebu 128 standard.</p><p>FFMPEG already has the capability<pre><code>
+$ ffmpeg -i test.mp3 -af loudnorm=I=-14:TP=-3:LRA=11:print_format=json -f null -
+</code></pre></p><p>I had few options</p><h3 id=feed-the-encoder-feed-to-ffmpeg-and-let-it-correct-the-loudness>feed the encoder feed to FFMPEG and let it correct the loudness</h3><pre><code>
+$ ffmpeg -re -i rtmp://example.com/live/radio1 \ 
+-af loudnorm=I=-14:TP=-3:LRA=11:print_format=json -f flv \
+-acodec aac -ar 44100 -ab 128k rtmp://example.com/live/radio2 
+</code></pre><blockquote><p>This will work perfectly but I didn&rsquo;t want to host either server or container with ffmpeg.
+Need to ensure that I had a wrapper around to handle retries if the incoming streams failed
+Had to duplicate rtmp endpoints in the wowza.</p></blockquote><h3 id=http-proxy-to-normalise-the-audio-segments-on-the-fly>http proxy to normalise the audio segments on the fly</h3><p>The segments created from the wowza server looks something like this.</p><pre><code>
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-ALLOW-CACHE:NO
+#EXT-X-TARGETDURATION:12
+#EXT-X-MEDIA-SEQUENCE:3
+#EXTINF:10.88,
+media_w1752152784_b127238_ao_3.aac
+#EXTINF:8.36,
+media_w1752152784_b127238_ao_4.aac
+#EXTINF:9.76,
+media_w1752152784_b127238_ao_5.aac
+</code></pre><p>What if there is way to normalise the audio while we serve the content. node express / fluent-ffmpeg and http-proxy to the rescue.</p><p>Step 1: Intercept the request</p><div class=highlight><pre style=-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-js data-lang=js><span style=color:#408080;font-style:italic>// intercept the aac segments and pass it through ffmpeg
+</span><span style=color:#408080;font-style:italic></span>
+app.get(<span style=color:#ba2121>&#39;/*.aac&#39;</span>, (req, res) =&gt; {
+    <span style=color:green;font-weight:700>var</span> pathToAudio <span style=color:#666>=</span> <span style=color:#ba2121>&#39;http://example.com&#39;</span><span style=color:#666>+</span>req.path;
+
+<span style=color:#408080;font-style:italic>// do something with aac
+</span><span style=color:#408080;font-style:italic></span> 
+});
+
+<span style=color:#408080;font-style:italic>// send the rest of the request through http-proxy module
+</span><span style=color:#408080;font-style:italic></span>
+app.get(<span style=color:#ba2121>&#34;/*.m3u8&#34;</span>, <span style=color:green;font-weight:700>function</span>(req, res){ 
+  apiProxy.web(req, res, { target<span style=color:#666>:</span> <span style=color:#ba2121>&#39;http://example.com&#39;</span> });
+});
+</code></pre></div><p>Step 2: Do something with the AAC segments</p><p><a href=https://github.com/fluent-ffmpeg/node-fluent-ffmpeg>fluent-ffmpeg</a> saved me from messing around with the ffmpeg directly. Neat little express module. Didn&rsquo;t do everything from built in functions but was able to pass all ffmpeg parameters via output options.</p><div class=highlight><pre style=-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-js data-lang=js>ffmpeg(pathToAudio)
+  .audioFilters(<span style=color:#ba2121>&#39;loudnorm=I=-16:TP=-3:LRA=16&#39;</span>)
+  .audioFilters(<span style=color:#ba2121>&#39;asetpts=PTS&#39;</span>)
+  .audioBitrate(<span style=color:#ba2121>&#39;128k&#39;</span>)
+  .audioFrequency(<span style=color:#666>48000</span>)
+  .format(<span style=color:#ba2121>&#39;adts&#39;</span>)
+  .audioCodec(<span style=color:#ba2121>&#39;aac&#39;</span>)
+  
+  .on(<span style=color:#ba2121>&#39;start&#39;</span>, <span style=color:green;font-weight:700>function</span>(commandLine) {
+    console.log(<span style=color:#ba2121>&#39;Spawned Ffmpeg with command: &#39;</span> <span style=color:#666>+</span> commandLine);
+  })
+  .on(<span style=color:#ba2121>&#39;error&#39;</span>, <span style=color:green;font-weight:700>function</span>(err) {
+    console.log(<span style=color:#ba2121>&#39;an error happened: &#39;</span> <span style=color:#666>+</span> err.message);
+    res.end();
+  })
+  .outputOptions([<span style=color:#ba2121>&#39;-muxdelay 0&#39;</span>,<span style=color:#ba2121>&#39;-write_id3v2 1&#39;</span>,<span style=color:#ba2121>&#39;-map_metadata:s:a 0:s:a&#39;</span>])
+  .pipe(res, {end<span style=color:#666>:</span> <span style=color:green;font-weight:700>true</span>})
+</code></pre></div><p>This is same as running the following ffmpeg command</p><div class=highlight><pre style=-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash>ffmpeg -i http://example.com/path/audio_001.aac <span style=color:#b62;font-weight:700>\
+</span><span style=color:#b62;font-weight:700></span>-af <span style=color:#19177c>loudnorm</span><span style=color:#666>=</span><span style=color:#19177c>I</span><span style=color:#666>=</span>-16:TP<span style=color:#666>=</span>-3:LRA<span style=color:#666>=</span><span style=color:#666>16</span>:asetpts<span style=color:#666>=</span>PTS -ab 128k -r <span style=color:#666>48000</span> -f adts -acodec aac <span style=color:#b62;font-weight:700>\
+</span><span style=color:#b62;font-weight:700></span>-muxdelay <span style=color:#666>0</span> -write_id3v2 <span style=color:#666>1</span> -map_metadata:s:a <span style=color:#666>0</span>:s:a audio_001_out.aac</code></pre></div><p>Explanation of each key</p><table><thead><tr><th>key</th><th>what?</th></tr></thead><tbody><tr><td>loudnorm=I</td><td>sets integrated loudness target to -16LKFS</td></tr><tr><td>TP=-3</td><td>true peak to 3</td></tr><tr><td>LR=16</td><td>sets loudness target to 16</td></tr><tr><td>asetpts=PTS</td><td>change the presentation timestamp to presentation timestamp of the input</td></tr><tr><td>ab 128k</td><td>audio bitrate set to 128kbps</td></tr><tr><td>r 48000</td><td>sampling rate to 48kHz</td></tr><tr><td>adts</td><td>set the output format to audio data transport stream</td></tr><tr><td>acodec aac</td><td>two options you can choose libfdk_aac vs built in aac. chose aac</td></tr><tr><td>muxdelay</td><td>attempt to take the silence off the beginning of the segment</td></tr><tr><td>write_id3v1</td><td>this is for apple. Read the explanation below</td></tr></tbody></table><ul><li>The libfdk_aac audio encoder introduced some gaps in the audio playback, FFmpeg default aac encoder seems to handle gaps better.</li><li>HLS audio segments must signal the timestap of its first sample with ID3 private frame, this required ID3 version enabled on the ADTS muxer &lsquo;-write_id3v2 1&rsquo;,&lsquo;-map_metadata:s:a 0:s:a</li></ul><p>Now the code with all the bells and whistles.</p><div class=highlight><pre style=-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-js data-lang=js><span style=color:#ba2121>&#39;use strict&#39;</span>;
+<span style=color:green;font-weight:700>var</span> express <span style=color:#666>=</span> require(<span style=color:#ba2121>&#39;express&#39;</span>);
+<span style=color:green;font-weight:700>var</span> ffmpeg <span style=color:#666>=</span> require(<span style=color:#ba2121>&#39;fluent-ffmpeg&#39;</span>);
+<span style=color:green;font-weight:700>var</span> PORT <span style=color:#666>=</span> <span style=color:#666>80</span>;
+<span style=color:green;font-weight:700>var</span> HOST <span style=color:#666>=</span> <span style=color:#ba2121>&#39;0.0.0.0&#39;</span>;
+<span style=color:green;font-weight:700>const</span> app <span style=color:#666>=</span> express();
+
+<span style=color:green;font-weight:700>var</span> httpProxy <span style=color:#666>=</span> require(<span style=color:#ba2121>&#39;http-proxy&#39;</span>);
+
+<span style=color:green;font-weight:700>var</span> apiProxy <span style=color:#666>=</span> httpProxy.createProxyServer();
+
+
+app.get(<span style=color:#ba2121>&#39;/*.aac&#39;</span>, (req, res) =&gt; {
+    res.setHeader(<span style=color:#ba2121>&#39;Access-Control-Allow-Origin&#39;</span>, <span style=color:#ba2121>&#39;*&#39;</span>);
+    res.setHeader(<span style=color:#ba2121>&#39;Access-Control-Allow-Methods&#39;</span>, <span style=color:#ba2121>&#39;GET, POST, OPTIONS, PUT, PATCH, DELETE&#39;</span>);
+    res.setHeader(<span style=color:#ba2121>&#39;Access-Control-Allow-Headers&#39;</span>, <span style=color:#ba2121>&#39;X-Requested-With,content-type&#39;</span>);
+    res.setHeader(<span style=color:#ba2121>&#39;Access-Control-Allow-Credentials&#39;</span>, <span style=color:green;font-weight:700>true</span>)
+    res.setHeader(<span style=color:#ba2121>&#39;Last-Modified&#39;</span>, (<span style=color:green;font-weight:700>new</span> <span style=color:green>Date</span>()).toUTCString());
+    res.setHeader(<span style=color:#ba2121>&#39;Cache-Control&#39;</span>, <span style=color:#ba2121>&#39;max-age=3600&#39;</span>);
+    res.contentType(<span style=color:#ba2121>&#39;audio/x-aac&#39;</span>);
+    <span style=color:green;font-weight:700>var</span> pathToAudio <span style=color:#666>=</span> <span style=color:#ba2121>&#39;http://example.com&#39;</span><span style=color:#666>+</span>req.path;
+    ffmpeg(pathToAudio)
+        .audioFilters(<span style=color:#ba2121>&#39;loudnorm=I=-16:TP=-3:LRA=16&#39;</span>)
+        .audioFilters(<span style=color:#ba2121>&#39;asetpts=PTS&#39;</span>)
+	.audioBitrate(<span style=color:#ba2121>&#39;128k&#39;</span>)
+	.audioFrequency(<span style=color:#666>48000</span>)
+	.format(<span style=color:#ba2121>&#39;adts&#39;</span>)
+	.audioCodec(<span style=color:#ba2121>&#39;aac&#39;</span>)
+	.on(<span style=color:#ba2121>&#39;start&#39;</span>, <span style=color:green;font-weight:700>function</span>(commandLine) {
+    		console.log(<span style=color:#ba2121>&#39;Spawned Ffmpeg with command: &#39;</span> <span style=color:#666>+</span> commandLine);
+  	})
+        .on(<span style=color:#ba2121>&#39;error&#39;</span>, <span style=color:green;font-weight:700>function</span>(err) {
+            console.log(<span style=color:#ba2121>&#39;an error happened: &#39;</span> <span style=color:#666>+</span> err.message);
+	    res.end();
+        })
+	.outputOptions([<span style=color:#ba2121>&#39;-muxdelay 0&#39;</span>,<span style=color:#ba2121>&#39;-write_id3v2 1&#39;</span>,<span style=color:#ba2121>&#39;-map_metadata:s:a 0:s:a&#39;</span>])
+        .pipe(res, {end<span style=color:#666>:</span> <span style=color:green;font-weight:700>true</span>})
+});
+
+app.get(<span style=color:#ba2121>&#34;/*.m3u8&#34;</span>, <span style=color:green;font-weight:700>function</span>(req, res){ 
+  apiProxy.web(req, res, { target<span style=color:#666>:</span> <span style=color:#ba2121>&#39;http://example.com&#39;</span> });
+});
+
+app.listen(PORT, HOST);
+console.log(<span style=color:#ba2121>`Running on http://</span><span style=color:#b68;font-weight:700>${</span>HOST<span style=color:#b68;font-weight:700>}</span><span style=color:#ba2121>:</span><span style=color:#b68;font-weight:700>${</span>PORT<span style=color:#b68;font-weight:700>}</span><span style=color:#ba2121>`</span>);
+</code></pre></div><p>Complete repo at <a href=https://github.com/morphkurt/loudnesscorrection>github</a></p></article></div><aside class="book-toc fixed"><nav id=TableOfContents><ul><li><a href=#just-in-time-loudness-enhancer>just in time loudness enhancer</a><ul><li><a href=#why>why?</a></li><li><a href=#ffmpeg-to-the-rescue-again>ffmpeg to the rescue&hellip;(again)</a><ul><li><a href=#feed-the-encoder-feed-to-ffmpeg-and-let-it-correct-the-loudness>feed the encoder feed to FFMPEG and let it correct the loudness</a></li><li><a href=#http-proxy-to-normalise-the-audio-segments-on-the-fly>http proxy to normalise the audio segments on the fly</a></li></ul></li></ul></li></ul></nav></aside></main></body></html>
