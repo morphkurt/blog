@@ -1,0 +1,229 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Automated Cabling Diagrams
+| Damitha Gunawardena @damithag</title><link href="https://fonts.googleapis.com/css?family=Oxygen|Oxygen+Mono:300,400,700" rel=stylesheet><link rel=stylesheet href=/book.min.a3caa905766cf610e263c876d2f2d8477f59d64606267bcaeee26e73160f9285.css><link rel=icon href=/favicon.png type=image/x-icon></head><body><input type=checkbox style=display:none id=menu-control><main class="flex container"><aside class="book-menu fixed"><nav role=navigation><h2 class=book-brand><a href=https://www.damitha.xyz/>Damitha Gunawardena @damithag</a></h2><ul><li><span>Coding</span><ul><li><a href=/docs/coding/alexa-i-cannot-hear-you/>Alexa I Cannot Hear You</a></li></ul></li><li><span>Hobby Projects</span><ul><li><span>Smart Home</span><ul><li><a href=/docs/hobby-projects/smart-home/intro/>Intro</a></li></ul></li><li><a href=/docs/hobby-projects/automated-cabling-diagrams/ class=active>Automated Cabling Diagrams</a></li></ul></li></ul></nav></aside><div class=book-page><header class="align-center justify-between book-header"><label for=menu-control><img src=/svg/menu.svg alt=Menu></label>
+<strong>Automated Cabling Diagrams</strong></header><article class=markdown><h1 id=hate-drawing-diagrams>hate drawing diagrams</h1><p>My side kick is managing the church av system, and state of the current cabling is bit of a mess when I took over. I tried to make sense out of the current cabling by meticulous documenting each cable.</p><p>The spreadsheet looked something like this.</p><p><img src=/img/av-spreadsheet.png alt="AV Spreadsheet"></p><p>I wanted to create something like this from that.</p><p><img src=/img/stagebox-example.png alt="Stage Input"></p><p>But I hate doing things that will become obsolete after the next gig. So drawing this manually was not an option.</p><p>I got all the information to build this diagram from the spreadsheet I created, so D3 to rescue.</p><h2 id=loading-the-data>loading the data</h2><div class=highlight><pre style=-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-js data-lang=js><span style=color:green;font-weight:700>function</span> loadMasterDB(){
+	$.ajax({
+        type<span style=color:#666>:</span> <span style=color:#ba2121>&#34;GET&#34;</span>,
+        url<span style=color:#666>:</span> <span style=color:#ba2121>&#34;https://sheets.googleapis.com/v4/spreadsheets/&lt;spreadsheetId&gt;/values/Master?key=something_secret&#34;</span>,
+        dataType<span style=color:#666>:</span> <span style=color:#ba2121>&#34;text&#34;</span>,
+        success<span style=color:#666>:</span> <span style=color:green;font-weight:700>function</span>(data) { 
+          masterDB <span style=color:#666>=</span> convertSheetJson(JSON.parse(data));
+          <span style=color:green;font-weight:700>var</span> stageBoxConfig <span style=color:#666>=</span> getStageBoxConfig(sb);
+          drawBox(stageBoxConfig);
+     	}
+	});
+}
+</code></pre></div><p>This will send an json object of the sheet within the spreadsheet</p><div class=highlight><pre style=-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-json data-lang=json>{
+  <span style=color:green;font-weight:700>&#34;range&#34;</span>: <span style=color:#ba2121>&#34;Master!A1:AD1000&#34;</span>,
+  <span style=color:green;font-weight:700>&#34;majorDimension&#34;</span>: <span style=color:#ba2121>&#34;ROWS&#34;</span>,
+  <span style=color:green;font-weight:700>&#34;values&#34;</span>: [
+    [
+      <span style=color:#ba2121>&#34;consoleIO&#34;</span>,
+      <span style=color:#ba2121>&#34;connectedBox&#34;</span>,
+      <span style=color:#ba2121>&#34;consoleInputType&#34;</span>,
+      <span style=color:#ba2121>&#34;stageInputType&#34;</span>,
+      <span style=color:#ba2121>&#34;stageBox&#34;</span>,
+      <span style=color:#ba2121>&#34;stageInput&#34;</span>,
+      <span style=color:#ba2121>&#34;stageLongName&#34;</span>,
+      <span style=color:#ba2121>&#34;connectionType&#34;</span>,
+      <span style=color:#ba2121>&#34;instrument&#34;</span>,
+      <span style=color:#ba2121>&#34;instrumentShortName&#34;</span>,
+      <span style=color:#ba2121>&#34;condition&#34;</span>,
+      <span style=color:#ba2121>&#34;surfaceColor&#34;</span>,
+      <span style=color:#ba2121>&#34;Comments&#34;</span>,
+      <span style=color:#ba2121>&#34;01/05/19&#34;</span>
+    ],
+    [
+      <span style=color:#ba2121>&#34;1&#34;</span>,
+      <span style=color:#ba2121>&#34;IDR32&#34;</span>,
+      <span style=color:#ba2121>&#34;Input&#34;</span>,
+      <span style=color:#ba2121>&#34;Input&#34;</span>,
+      <span style=color:#ba2121>&#34;NA&#34;</span>,
+      <span style=color:#ba2121>&#34;NA&#34;</span>,
+      <span style=color:#ba2121>&#34;NA&#34;</span>,
+      <span style=color:#ba2121>&#34;NA&#34;</span>,
+      <span style=color:#ba2121>&#34;NA&#34;</span>,
+      <span style=color:#ba2121>&#34;NA&#34;</span>,
+      <span style=color:#ba2121>&#34;NOK&#34;</span>
+    ]
+   ]
+}</code></pre></div><p>Converted the json object to something I can parse directly to D3.</p><div class=highlight><pre style=-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-js data-lang=js><span style=color:green;font-weight:700>function</span> convertSheetJson(output){
+		<span style=color:green;font-weight:700>var</span> rows <span style=color:#666>=</span> output.values;
+		<span style=color:green;font-weight:700>var</span> masterDB <span style=color:#666>=</span> [];
+		<span style=color:green;font-weight:700>for</span> (i <span style=color:#666>=</span> <span style=color:#666>1</span>; i <span style=color:#666>&lt;</span> rows.length; i<span style=color:#666>++</span>) { 
+				<span style=color:green;font-weight:700>var</span> val<span style=color:#666>=</span>[];
+				<span style=color:green;font-weight:700>for</span> (j <span style=color:#666>=</span> <span style=color:#666>0</span>; j <span style=color:#666>&lt;</span> rows[<span style=color:#666>0</span>].length; j<span style=color:#666>++</span>) { 
+					val[rows[<span style=color:#666>0</span>][j]]<span style=color:#666>=</span>rows[i][j];
+				}		
+				masterDB.push(val);
+		}
+		<span style=color:green;font-weight:700>return</span> masterDB;
+}
+</code></pre></div><p>Draw the diagram, warning following is a ugly looking code.</p><div class=highlight><pre style=-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-js data-lang=js><span style=color:green;font-weight:700>function</span> drawBox(stageBoxConfig) {
+    <span style=color:green;font-weight:700>var</span> r <span style=color:#666>=</span> w <span style=color:#666>/</span> (col <span style=color:#666>*</span> <span style=color:#666>3.25</span>);
+    <span style=color:green;font-weight:700>var</span> circleArray <span style=color:#666>=</span> [];
+    <span style=color:green;font-weight:700>for</span> (i <span style=color:#666>=</span> <span style=color:#666>1</span>; i <span style=color:#666>&lt;</span> (col <span style=color:#666>*</span> row) <span style=color:#666>+</span> <span style=color:#666>1</span>; i<span style=color:#666>++</span>) {
+        <span style=color:green;font-weight:700>var</span> quotient <span style=color:#666>=</span> <span style=color:green>Math</span>.floor((i <span style=color:#666>-</span> <span style=color:#666>1</span>) <span style=color:#666>/</span> col);
+        <span style=color:green;font-weight:700>var</span> remainder <span style=color:#666>=</span> (i <span style=color:#666>-</span> <span style=color:#666>1</span>) <span style=color:#666>%</span> col;
+        <span style=color:green;font-weight:700>var</span> circle <span style=color:#666>=</span> [];
+        circle.x <span style=color:#666>=</span> (<span style=color:#666>2</span> <span style=color:#666>*</span> r) <span style=color:#666>+</span> remainder <span style=color:#666>*</span> <span style=color:#666>3</span> <span style=color:#666>*</span> r;
+        circle.y <span style=color:#666>=</span> (<span style=color:#666>3</span> <span style=color:#666>*</span> r <span style=color:#666>*</span> <span style=color:green>Math</span>.floor((i <span style=color:#666>-</span> <span style=color:#666>1</span>) <span style=color:#666>/</span> col)) <span style=color:#666>+</span> (r <span style=color:#666>*</span> <span style=color:#666>2</span>);
+        circle.r <span style=color:#666>=</span> r;
+        circle.stageInput <span style=color:#666>=</span> i;
+        circle[<span style=color:#ba2121>&#34;condition&#34;</span>] <span style=color:#666>=</span> <span style=color:#ba2121>&#34;HIDDEN&#34;</span>;
+        <span style=color:green;font-weight:700>for</span> (j <span style=color:#666>=</span> <span style=color:#666>0</span>; j <span style=color:#666>&lt;</span> stageBoxConfig.length; j<span style=color:#666>++</span>) {
+            <span style=color:green;font-weight:700>if</span> (stageBoxConfig[j].stageInput <span style=color:#666>==</span> i) {
+                circle[<span style=color:#ba2121>&#34;consoleIO&#34;</span>] <span style=color:#666>=</span> stageBoxConfig[j].consoleIO;
+                circle[<span style=color:#ba2121>&#34;connectionType&#34;</span>] <span style=color:#666>=</span> stageBoxConfig[j].connectionType;
+                circle[<span style=color:#ba2121>&#34;instrumentShortName&#34;</span>] <span style=color:#666>=</span> stageBoxConfig[j].instrumentShortName.toUpperCase();
+                circle[<span style=color:#ba2121>&#34;stageInput&#34;</span>] <span style=color:#666>=</span> stageBoxConfig[j].stageInput;
+                circle[<span style=color:#ba2121>&#34;color&#34;</span>] <span style=color:#666>=</span> stageBoxConfig[j].color;
+                circle[<span style=color:#ba2121>&#34;condition&#34;</span>] <span style=color:#666>=</span> stageBoxConfig[j].condition;
+                circle[<span style=color:#ba2121>&#34;stageInputType&#34;</span>] <span style=color:#666>=</span> stageBoxConfig[j].stageInputType.toLowerCase();
+            }
+        }
+        circleArray.push(circle);
+    }
+    <span style=color:green;font-weight:700>var</span> svgContainer <span style=color:#666>=</span> d3.select(<span style=color:#ba2121>&#34;body&#34;</span>).append(<span style=color:#ba2121>&#34;svg&#34;</span>)
+        .attr(<span style=color:#ba2121>&#34;width&#34;</span>, w)
+        .attr(<span style=color:#ba2121>&#34;height&#34;</span>, h);
+
+    <span style=color:green;font-weight:700>var</span> margin_top <span style=color:#666>=</span> <span style=color:#666>50</span>;
+    <span style=color:green;font-weight:700>var</span> circles <span style=color:#666>=</span> svgContainer.selectAll(<span style=color:#ba2121>&#34;g&#34;</span>)
+        .data(circleArray)
+        .enter()
+        .append(<span style=color:#ba2121>&#34;g&#34;</span>);
+    circles.append(<span style=color:#ba2121>&#34;text&#34;</span>)
+        .attr(<span style=color:#ba2121>&#34;x&#34;</span>, (w <span style=color:#666>/</span> <span style=color:#666>2</span>))
+        .attr(<span style=color:#ba2121>&#34;y&#34;</span>, (margin_top <span style=color:#666>/</span> <span style=color:#666>2</span>))
+        .attr(<span style=color:#ba2121>&#34;text-anchor&#34;</span>, <span style=color:#ba2121>&#34;middle&#34;</span>)
+        .style(<span style=color:#ba2121>&#34;font-size&#34;</span>, <span style=color:#ba2121>&#34;30px&#34;</span>)
+        .text(stageBoxName.toUpperCase());
+    circles.append(<span style=color:#ba2121>&#34;rect&#34;</span>)
+        .attr(<span style=color:#ba2121>&#34;x&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (i <span style=color:#666>%</span> col) <span style=color:#666>*</span> <span style=color:#666>3</span> <span style=color:#666>*</span> r <span style=color:#666>+</span> <span style=color:#666>0.5</span> <span style=color:#666>*</span> r;
+        })
+        .attr(<span style=color:#ba2121>&#34;y&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (<span style=color:#666>4</span> <span style=color:#666>*</span> r <span style=color:#666>*</span> <span style=color:green>Math</span>.floor(i <span style=color:#666>/</span> col)) <span style=color:#666>+</span> <span style=color:#666>0.5</span> <span style=color:#666>*</span> r;
+        })
+        .attr(<span style=color:#ba2121>&#34;width&#34;</span>, <span style=color:#666>3</span> <span style=color:#666>*</span> r)
+        .style(<span style=color:#ba2121>&#34;stroke&#34;</span>, <span style=color:#ba2121>&#34;black&#34;</span>)
+        .style(<span style=color:#ba2121>&#34;fill&#34;</span>, <span style=color:green;font-weight:700>function</span>(d) {
+            <span style=color:green;font-weight:700>return</span> d.condition <span style=color:#666>==</span> <span style=color:#ba2121>&#34;NOK&#34;</span> <span style=color:#666>?</span> <span style=color:#ba2121>&#34;red&#34;</span> <span style=color:#666>:</span> <span style=color:#ba2121>&#34;none&#34;</span>
+        })
+        .style(<span style=color:#ba2121>&#34;visibility&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> d.condition <span style=color:#666>===</span> <span style=color:#ba2121>&#34;HIDDEN&#34;</span> <span style=color:#666>||</span> skipArray.includes((i <span style=color:#666>+</span> <span style=color:#666>1</span>).toString()) <span style=color:#666>?</span> <span style=color:#ba2121>&#34;hidden&#34;</span> <span style=color:#666>:</span> <span style=color:#ba2121>&#34;visible&#34;</span>;
+        })
+        .attr(<span style=color:#ba2121>&#34;height&#34;</span>, <span style=color:#666>4</span> <span style=color:#666>*</span> r);
+    circles.append(<span style=color:#ba2121>&#34;circle&#34;</span>)
+        .attr(<span style=color:#ba2121>&#34;cx&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (<span style=color:#666>2</span> <span style=color:#666>*</span> r) <span style=color:#666>+</span> (i <span style=color:#666>%</span> col) <span style=color:#666>*</span> <span style=color:#666>3</span> <span style=color:#666>*</span> r;
+        })
+        .attr(<span style=color:#ba2121>&#34;cy&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (<span style=color:#666>4</span> <span style=color:#666>*</span> r <span style=color:#666>*</span> <span style=color:green>Math</span>.floor(i <span style=color:#666>/</span> col)) <span style=color:#666>+</span> (r <span style=color:#666>*</span> <span style=color:#666>2.5</span>);
+        })
+        .attr(<span style=color:#ba2121>&#34;r&#34;</span>, <span style=color:green;font-weight:700>function</span>(d) {
+            <span style=color:green;font-weight:700>return</span> d.r;
+        })
+        .style(<span style=color:#ba2121>&#34;stroke&#34;</span>, <span style=color:#ba2121>&#34;black&#34;</span>)
+        <span style=color:#408080;font-style:italic>//stageInputType
+</span><span style=color:#408080;font-style:italic></span>        .style(<span style=color:#ba2121>&#34;fill&#34;</span>, <span style=color:green;font-weight:700>function</span>(d) {
+            <span style=color:green;font-weight:700>return</span> d.stageInputType <span style=color:#666>==</span> <span style=color:#ba2121>&#34;input&#34;</span> <span style=color:#666>?</span> <span style=color:#ba2121>&#34;black&#34;</span> <span style=color:#666>:</span> <span style=color:#ba2121>&#34;none&#34;</span>;
+        })
+        .style(<span style=color:#ba2121>&#34;visibility&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> d.condition <span style=color:#666>===</span> <span style=color:#ba2121>&#34;HIDDEN&#34;</span> <span style=color:#666>||</span> skipArray.includes((i <span style=color:#666>+</span> <span style=color:#666>1</span>).toString()) <span style=color:#666>?</span> <span style=color:#ba2121>&#34;hidden&#34;</span> <span style=color:#666>:</span> <span style=color:#ba2121>&#34;visible&#34;</span>;
+        });
+    circles.append(<span style=color:#ba2121>&#34;circle&#34;</span>)
+        .attr(<span style=color:#ba2121>&#34;cx&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (<span style=color:#666>2</span> <span style=color:#666>*</span> r) <span style=color:#666>+</span> (i <span style=color:#666>%</span> col) <span style=color:#666>*</span> <span style=color:#666>3</span> <span style=color:#666>*</span> r;
+        })
+        .attr(<span style=color:#ba2121>&#34;cy&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (<span style=color:#666>4</span> <span style=color:#666>*</span> r <span style=color:#666>*</span> <span style=color:green>Math</span>.floor(i <span style=color:#666>/</span> col)) <span style=color:#666>+</span> (r <span style=color:#666>*</span> <span style=color:#666>3</span>);
+        })
+        .attr(<span style=color:#ba2121>&#34;r&#34;</span>, <span style=color:green;font-weight:700>function</span>(d) {
+            <span style=color:green;font-weight:700>return</span> d.r <span style=color:#666>/</span> <span style=color:#666>10</span>;
+        })
+        .style(<span style=color:#ba2121>&#34;visibility&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> d.condition <span style=color:#666>===</span> <span style=color:#ba2121>&#34;HIDDEN&#34;</span> <span style=color:#666>||</span> skipArray.includes((i <span style=color:#666>+</span> <span style=color:#666>1</span>).toString()) <span style=color:#666>?</span> <span style=color:#ba2121>&#34;hidden&#34;</span> <span style=color:#666>:</span> <span style=color:#ba2121>&#34;visible&#34;</span>;
+        })
+        .style(<span style=color:#ba2121>&#34;fill&#34;</span>, <span style=color:green;font-weight:700>function</span>(d) {
+            <span style=color:green;font-weight:700>return</span> d.stageInputType <span style=color:#666>==</span> <span style=color:#ba2121>&#34;input&#34;</span> <span style=color:#666>?</span> <span style=color:#ba2121>&#34;white&#34;</span> <span style=color:#666>:</span> <span style=color:#ba2121>&#34;black&#34;</span>;
+        });
+    circles.append(<span style=color:#ba2121>&#34;circle&#34;</span>)
+        .attr(<span style=color:#ba2121>&#34;cx&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (<span style=color:#666>1.5</span> <span style=color:#666>*</span> r) <span style=color:#666>+</span> (i <span style=color:#666>%</span> col) <span style=color:#666>*</span> <span style=color:#666>3</span> <span style=color:#666>*</span> r;
+        })
+        .attr(<span style=color:#ba2121>&#34;cy&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (<span style=color:#666>4</span> <span style=color:#666>*</span> r <span style=color:#666>*</span> <span style=color:green>Math</span>.floor(i <span style=color:#666>/</span> col)) <span style=color:#666>+</span> (r <span style=color:#666>*</span> <span style=color:#666>2.5</span>);
+        })
+        .attr(<span style=color:#ba2121>&#34;r&#34;</span>, <span style=color:green;font-weight:700>function</span>(d) {
+            <span style=color:green;font-weight:700>return</span> d.r <span style=color:#666>/</span> <span style=color:#666>10</span>;
+        })
+        .style(<span style=color:#ba2121>&#34;visibility&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> d.condition <span style=color:#666>===</span> <span style=color:#ba2121>&#34;HIDDEN&#34;</span> <span style=color:#666>||</span> skipArray.includes((i <span style=color:#666>+</span> <span style=color:#666>1</span>).toString()) <span style=color:#666>?</span> <span style=color:#ba2121>&#34;hidden&#34;</span> <span style=color:#666>:</span> <span style=color:#ba2121>&#34;visible&#34;</span>;
+        })
+        .style(<span style=color:#ba2121>&#34;fill&#34;</span>, <span style=color:green;font-weight:700>function</span>(d) {
+            <span style=color:green;font-weight:700>return</span> d.stageInputType <span style=color:#666>==</span> <span style=color:#ba2121>&#34;input&#34;</span> <span style=color:#666>?</span> <span style=color:#ba2121>&#34;white&#34;</span> <span style=color:#666>:</span> <span style=color:#ba2121>&#34;black&#34;</span>;
+        });
+    circles.append(<span style=color:#ba2121>&#34;circle&#34;</span>)
+        .attr(<span style=color:#ba2121>&#34;cx&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (<span style=color:#666>2.5</span> <span style=color:#666>*</span> r) <span style=color:#666>+</span> (i <span style=color:#666>%</span> col) <span style=color:#666>*</span> <span style=color:#666>3</span> <span style=color:#666>*</span> r;
+        })
+        .attr(<span style=color:#ba2121>&#34;cy&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (<span style=color:#666>4</span> <span style=color:#666>*</span> r <span style=color:#666>*</span> <span style=color:green>Math</span>.floor(i <span style=color:#666>/</span> col)) <span style=color:#666>+</span> (r <span style=color:#666>*</span> <span style=color:#666>2.5</span>);
+        })
+        .attr(<span style=color:#ba2121>&#34;r&#34;</span>, <span style=color:green;font-weight:700>function</span>(d) {
+            <span style=color:green;font-weight:700>return</span> d.r <span style=color:#666>/</span> <span style=color:#666>10</span>;
+        })
+        .style(<span style=color:#ba2121>&#34;visibility&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> d.condition <span style=color:#666>===</span> <span style=color:#ba2121>&#34;HIDDEN&#34;</span> <span style=color:#666>||</span> skipArray.includes((i <span style=color:#666>+</span> <span style=color:#666>1</span>).toString()) <span style=color:#666>?</span> <span style=color:#ba2121>&#34;hidden&#34;</span> <span style=color:#666>:</span> <span style=color:#ba2121>&#34;visible&#34;</span>;
+        })
+        .style(<span style=color:#ba2121>&#34;fill&#34;</span>, <span style=color:green;font-weight:700>function</span>(d) {
+            <span style=color:green;font-weight:700>return</span> d.stageInputType <span style=color:#666>==</span> <span style=color:#ba2121>&#34;input&#34;</span> <span style=color:#666>?</span> <span style=color:#ba2121>&#34;white&#34;</span> <span style=color:#666>:</span> <span style=color:#ba2121>&#34;black&#34;</span>;
+        });
+    circles.append(<span style=color:#ba2121>&#34;text&#34;</span>)
+        .attr(<span style=color:#ba2121>&#34;x&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (i <span style=color:#666>%</span> col) <span style=color:#666>*</span> <span style=color:#666>3</span> <span style=color:#666>*</span> r <span style=color:#666>+</span> <span style=color:#666>0.75</span> <span style=color:#666>*</span> r;
+        })
+        .attr(<span style=color:#ba2121>&#34;y&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (<span style=color:#666>4</span> <span style=color:#666>*</span> r <span style=color:#666>*</span> <span style=color:green>Math</span>.floor(i <span style=color:#666>/</span> col)) <span style=color:#666>+</span> <span style=color:#666>1.25</span> <span style=color:#666>*</span> r;
+        })
+        .attr(<span style=color:#ba2121>&#34;dy&#34;</span>, <span style=color:#ba2121>&#34;-.35em&#34;</span>)
+        .style(<span style=color:#ba2121>&#34;visibility&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> d.condition <span style=color:#666>===</span> <span style=color:#ba2121>&#34;HIDDEN&#34;</span> <span style=color:#666>||</span> skipArray.includes((i <span style=color:#666>+</span> <span style=color:#666>1</span>).toString()) <span style=color:#666>?</span> <span style=color:#ba2121>&#34;hidden&#34;</span> <span style=color:#666>:</span> <span style=color:#ba2121>&#34;visible&#34;</span>;
+        })
+        .text(<span style=color:green;font-weight:700>function</span>(d) {
+            <span style=color:green;font-weight:700>return</span> d.stageInput;
+        })
+        .style(<span style=color:#ba2121>&#34;fill&#34;</span>, <span style=color:#ba2121>&#34;black&#34;</span>);
+    circles.append(<span style=color:#ba2121>&#34;text&#34;</span>)
+        .attr(<span style=color:#ba2121>&#34;x&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (i <span style=color:#666>%</span> col) <span style=color:#666>*</span> <span style=color:#666>3</span> <span style=color:#666>*</span> r <span style=color:#666>+</span> <span style=color:#666>2.75</span> <span style=color:#666>*</span> r;
+        })
+        .attr(<span style=color:#ba2121>&#34;y&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (<span style=color:#666>4</span> <span style=color:#666>*</span> r <span style=color:#666>*</span> <span style=color:green>Math</span>.floor(i <span style=color:#666>/</span> col)) <span style=color:#666>+</span> <span style=color:#666>1.25</span> <span style=color:#666>*</span> r;
+        })
+        .attr(<span style=color:#ba2121>&#34;dy&#34;</span>, <span style=color:#ba2121>&#34;-.35em&#34;</span>)
+        .style(<span style=color:#ba2121>&#34;visibility&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> d.condition <span style=color:#666>===</span> <span style=color:#ba2121>&#34;HIDDEN&#34;</span> <span style=color:#666>||</span> skipArray.includes((i <span style=color:#666>+</span> <span style=color:#666>1</span>).toString()) <span style=color:#666>?</span> <span style=color:#ba2121>&#34;hidden&#34;</span> <span style=color:#666>:</span> <span style=color:#ba2121>&#34;visible&#34;</span>;
+        })
+        .text(<span style=color:green;font-weight:700>function</span>(d) {
+            <span style=color:green;font-weight:700>return</span> d.consoleIO;
+        })
+    <span style=color:#408080;font-style:italic>//.style(&#34;stroke&#34;,&#34;black&#34;);
+</span><span style=color:#408080;font-style:italic></span>    circles.append(<span style=color:#ba2121>&#34;text&#34;</span>)
+        .attr(<span style=color:#ba2121>&#34;x&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (i <span style=color:#666>%</span> col) <span style=color:#666>*</span> <span style=color:#666>3</span> <span style=color:#666>*</span> r <span style=color:#666>+</span> <span style=color:#666>0.75</span> <span style=color:#666>*</span> r;
+        })
+        .attr(<span style=color:#ba2121>&#34;y&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> (<span style=color:#666>4</span> <span style=color:#666>*</span> r <span style=color:#666>*</span> <span style=color:green>Math</span>.floor(i <span style=color:#666>/</span> col)) <span style=color:#666>+</span> <span style=color:#666>4.25</span> <span style=color:#666>*</span> r;
+        })
+        .style(<span style=color:#ba2121>&#34;visibility&#34;</span>, <span style=color:green;font-weight:700>function</span>(d, i) {
+            <span style=color:green;font-weight:700>return</span> d.condition <span style=color:#666>===</span> <span style=color:#ba2121>&#34;HIDDEN&#34;</span> <span style=color:#666>||</span> skipArray.includes((i <span style=color:#666>+</span> <span style=color:#666>1</span>).toString()) <span style=color:#666>?</span> <span style=color:#ba2121>&#34;hidden&#34;</span> <span style=color:#666>:</span> <span style=color:#ba2121>&#34;visible&#34;</span>;
+        })
+        .text(<span style=color:green;font-weight:700>function</span>(d) {
+            <span style=color:green;font-weight:700>return</span> d.condition <span style=color:#666>===</span> <span style=color:#ba2121>&#34;NOK&#34;</span> <span style=color:#666>?</span> <span style=color:#ba2121>&#34;FLTY&#34;</span> <span style=color:#666>:</span> d.instrumentShortName
+        })
+        .style(<span style=color:#ba2121>&#34;fill&#34;</span>, <span style=color:#ba2121>&#34;black&#34;</span>)
+        .style(<span style=color:#ba2121>&#34;font-size&#34;</span>, <span style=color:#ba2121>&#34;17px&#34;</span>);
+}
+</code></pre></div><p>The final product</p><ol><li><a href="https://morphkurt.github.io/AVVisualise/index.html?sb=FL&amp;col=5&amp;row=5">Front Left Stage Box</a></li><li><a href="https://morphkurt.github.io/AVVisualise/index.html?sb=FR&amp;col=5&amp;row=5">Front Right Stage Box</a></li><li><a href="https://morphkurt.github.io/AVVisualise/index.html?sb=BL&amp;col=5&amp;row=5">Back Left Left Stage Box</a></li><li><a href="https://morphkurt.github.io/AVVisualise/index.html?sb=BR&amp;col=5&amp;row=5">Back Right Left Stage Box</a></li><li><a href="https://morphkurt.github.io/AVVisualise/index.html?sb=ML&amp;col=5&amp;row=5">Middle Stage Box</a></li></ol></article></div><aside class="book-toc fixed"><nav id=TableOfContents><ul><li><a href=#hate-drawing-diagrams>hate drawing diagrams</a><ul><li><a href=#loading-the-data>loading the data</a></li></ul></li></ul></nav></aside></main></body></html>
