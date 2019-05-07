@@ -1,13 +1,14 @@
 function renderWeeklyLoadGraph(data,fdow){
+
   var margin = {
       top: 40,
       right: 40,
       bottom: 40,
       left: 50
   },
-
-  width = 700 - margin.left - margin.right,
-  height = 200 - margin.top - margin.bottom;
+ 
+   width = 600 - margin.left - margin.right,
+  height = 180 - margin.top - margin.bottom;
 
   var parseTime = d3.timeParse('%Y-%m-%dT%H:%M:%S.%LZ');
   var parseTimeSeconds = d3.timeParse('%s');
@@ -31,7 +32,7 @@ function renderWeeklyLoadGraph(data,fdow){
 
   var xAxis = d3.axisBottom(x)
   .tickFormat(d3.timeFormat("%b %Y"))
-  .tickValues(x.domain().filter(function(d,i){ return !(i%6)}));
+  .tickValues(x.domain().filter(function(d,i){ return !(i%8)}));
 
   
   var y = d3.scaleLinear()
@@ -47,7 +48,7 @@ function renderWeeklyLoadGraph(data,fdow){
     .append("svg")
      //responsive SVG needs these 2 attributes and no width and height attr
     .attr("preserveAspectRatio", "xMinYMin meet")
-    .attr("viewBox", "0 0 700 200")
+    .attr("viewBox", "0 0 600 180")
     //class to make it responsive
     .classed("svg-content-responsive", true) 
     .attr("width", width + margin.left + margin.right)
